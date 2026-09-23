@@ -244,6 +244,28 @@ def format_percentage_value(val: Any) -> str:
     return s
 
 
+def split_into_two_lines(text: str) -> str:
+    """
+    Splits a long text string into 2 balanced lines at word boundaries.
+    E.g. 'PLC-BASED SMART MANUFACTURING CONVEYOR' -> 'PLC-BASED SMART\nMANUFACTURING CONVEYOR'.
+    """
+    if not text or "\n" in text:
+        return text
+    words = text.split()
+    if len(words) <= 1:
+        return text
+    best_diff = float("inf")
+    best_split = None
+    for i in range(1, len(words)):
+        l1 = " ".join(words[:i])
+        l2 = " ".join(words[i:])
+        diff = abs(len(l1) - len(l2))
+        if diff < best_diff:
+            best_diff = diff
+            best_split = f"{l1}\n{l2}"
+    return best_split or text
+
+
 class FontManager:
     """Manages and caches TrueType fonts with Unicode/Tamil fallback support."""
 
@@ -358,27 +380,46 @@ class CertificateGenerator:
         return ""
 
     def _render_text(self, draw: ImageDraw.ImageDraw, item: PlaceholderItem, text: str):
-        """Draws text within the bounding box with auto-shrink and proper alignment."""
+        """Draws text within the bounding box with auto-shrink, multiline wrapping, and proper alignment."""
         if not text:
             return
 
+        # Check if text should be split into 2 lines
+        should_split = (
+            "\n" in text
+            or getattr(item, "multi_line", False)
+            or getattr(item, "max_lines", 1) >= 2
+            or (any(k in item.name.lower() for k in ["project", "mini project", "title"]) and len(text.split()) >= 3)
+        )
+        if should_split and "\n" not in text:
+            text = split_into_two_lines(text)
+
+        is_multiline = "\n" in text
         is_tamil = bool(TAMIL_REGEX.search(text))
         font_size = item.font_size
         font = self.font_manager.get_font(item.font_family, font_size, is_tamil=is_tamil)
+        spacing = max(4, int(font_size * 0.2))
 
         # Auto-shrink if text overflows box width or height
         if item.auto_shrink:
-            min_size = max(12, int(item.font_size * 0.4))
+            min_size = max(12, int(item.font_size * 0.35))
             while font_size > min_size:
-                bbox = draw.textbbox((0, 0), text, font=font)
+                if is_multiline:
+                    bbox = draw.multiline_textbbox((0, 0), text, font=font, align=item.alignment, spacing=spacing)
+                else:
+                    bbox = draw.textbbox((0, 0), text, font=font)
                 text_w = bbox[2] - bbox[0]
                 text_h = bbox[3] - bbox[1]
                 if text_w <= item.width and text_h <= item.height:
                     break
                 font_size -= 2
                 font = self.font_manager.get_font(item.font_family, font_size, is_tamil=is_tamil)
+                spacing = max(4, int(font_size * 0.2))
 
-        bbox = draw.textbbox((0, 0), text, font=font)
+        if is_multiline:
+            bbox = draw.multiline_textbbox((0, 0), text, font=font, align=item.alignment, spacing=spacing)
+        else:
+            bbox = draw.textbbox((0, 0), text, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
 
@@ -393,7 +434,10 @@ class CertificateGenerator:
         # Vertically center inside the bounding box
         draw_y = item.y + (item.height - text_h) / 2.0 - bbox[1]
 
-        draw.text((draw_x, draw_y), text, font=font, fill=item.font_color)
+        if is_multiline:
+            draw.multiline_text((draw_x, draw_y), text, font=font, fill=item.font_color, align=item.alignment, spacing=spacing)
+        else:
+            draw.text((draw_x, draw_y), text, font=font, fill=item.font_color)
 
     def _overlay_signature(self, base_image: Image.Image, item: PlaceholderItem, default_sig_path: str):
         """Overlays the signature image onto the base image with transparency support."""

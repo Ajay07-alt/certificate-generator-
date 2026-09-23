@@ -131,7 +131,12 @@ class ItemPropertiesDialog(tk.Toplevel):
         # Auto shrink checkbox
         self.shrink_var = tk.BooleanVar(value=self.item.auto_shrink)
         shrink_cb = ttk.Checkbutton(self.typo_frame, text="Auto-shrink text if exceeding box width", variable=self.shrink_var)
-        shrink_cb.grid(row=4, column=0, columnspan=2, sticky="w", pady=6)
+        shrink_cb.grid(row=4, column=0, columnspan=2, sticky="w", pady=4)
+
+        # Multi-line (2 lines) checkbox
+        self.multiline_var = tk.BooleanVar(value=getattr(self.item, 'multi_line', False) or getattr(self.item, 'max_lines', 1) >= 2)
+        multiline_cb = ttk.Checkbutton(self.typo_frame, text="Wrap into 2 lines (Multi-line text)", variable=self.multiline_var)
+        multiline_cb.grid(row=5, column=0, columnspan=2, sticky="w", pady=2)
 
         # Buttons
         btn_bar = ttk.Frame(container)
@@ -176,6 +181,8 @@ class ItemPropertiesDialog(tk.Toplevel):
             self.item.font_color = self.color_hex_lbl.cget("text")
             self.item.alignment = self.align_var.get()
             self.item.auto_shrink = self.shrink_var.get()
+            self.item.multi_line = self.multiline_var.get()
+            self.item.max_lines = 2 if self.multiline_var.get() else 1
 
         self.on_update(self.item)
         self.destroy()
@@ -542,13 +549,23 @@ class CanvasEditor(ttk.Frame):
                 tags=("placeholder_text", item.id)
             )
         else:
+            from generator import CertificateGenerator, split_into_two_lines
             if self.preview_sample_data and self.sample_data_row:
                 # Show real sample value
-                from generator import CertificateGenerator
                 val = CertificateGenerator.match_column_value(self.sample_data_row, item.name)
                 display_str = f"{item.prefix}{val}{item.suffix}" if val else f"[{item.name}]"
             else:
                 display_str = f"[{item.name}]"
+
+            # Multi-line splitting (if 2 lines enabled or long project title)
+            should_split = (
+                "\n" in display_str
+                or getattr(item, "multi_line", False)
+                or getattr(item, "max_lines", 1) >= 2
+                or (any(k in item.name.lower() for k in ["project", "mini project", "title"]) and len(display_str.split()) >= 3)
+            )
+            if should_split and "\n" not in display_str:
+                display_str = split_into_two_lines(display_str)
 
             font_size = max(8, int(item.font_size * self.zoom_scale))
             align = item.alignment
@@ -568,6 +585,7 @@ class CanvasEditor(ttk.Frame):
                 tx, ty,
                 text=display_str,
                 anchor=anchor,
+                justify=align,
                 font=("Segoe UI", font_size, "bold"),
                 fill=item.font_color,
                 tags=("placeholder_text", item.id)

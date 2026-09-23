@@ -78,6 +78,7 @@ const fontSizeDisplay = document.getElementById("fontSizeDisplay");
 const propColorInput = document.getElementById("propColorInput");
 const propAlignSelect = document.getElementById("propAlignSelect");
 const propAutoShrink = document.getElementById("propAutoShrink");
+const propMultiLine = document.getElementById("propMultiLine");
 const propIsSignature = document.getElementById("propIsSignature");
 const propPrefixInput = document.getElementById("propPrefixInput");
 const propSuffixInput = document.getElementById("propSuffixInput");
@@ -177,6 +178,7 @@ function setupEventListeners() {
   propColorInput.addEventListener("input", (e) => updateSelectedItem({ font_color: e.target.value }));
   propAlignSelect.addEventListener("change", (e) => updateSelectedItem({ alignment: e.target.value }));
   propAutoShrink.addEventListener("change", (e) => updateSelectedItem({ auto_shrink: e.target.checked }));
+  propMultiLine.addEventListener("change", (e) => updateSelectedItem({ multi_line: e.target.checked, max_lines: e.target.checked ? 2 : 1 }));
   propIsSignature.addEventListener("change", (e) => updateSelectedItem({ is_signature: e.target.checked }));
   propPrefixInput.addEventListener("input", (e) => updateSelectedItem({ prefix: e.target.value }));
   propSuffixInput.addEventListener("input", (e) => updateSelectedItem({ suffix: e.target.value }));
@@ -326,6 +328,24 @@ function renderCanvas() {
       return str;
     }
 
+    function splitTwoLines(text) {
+      if (!text || text.includes("\n")) return text;
+      const words = text.split(/\s+/);
+      if (words.length <= 1) return text;
+      let bestDiff = Infinity;
+      let bestSplit = text;
+      for (let i = 1; i < words.length; i++) {
+        const l1 = words.slice(0, i).join(" ");
+        const l2 = words.slice(i).join(" ");
+        const diff = Math.abs(l1.length - l2.length);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          bestSplit = `${l1}\n${l2}`;
+        }
+      }
+      return bestSplit;
+    }
+
     let displayVal = item.name;
     if (state.excel.sampleRows.length > 0) {
       const row = state.excel.sampleRows[state.studentIndex] || state.excel.sampleRows[0];
@@ -335,8 +355,19 @@ function renderCanvas() {
       }
     }
 
+    // Auto-split into 2 lines if multiline is enabled or if it's a project title
+    const shouldSplit = (
+      displayVal.includes("\n")
+      || item.multi_line
+      || (item.max_lines && item.max_lines >= 2)
+      || (/project|title/i.test(item.name) && displayVal.split(/\s+/).length >= 3)
+    );
+    if (shouldSplit && !displayVal.includes("\n")) {
+      displayVal = splitTwoLines(displayVal);
+    }
+
     el.innerHTML = `
-      <span class="item-label" style="color: ${item.font_color}; font-family: ${item.font_family}; font-size: ${Math.max(10, item.font_size * scale)}px;">
+      <span class="item-label" style="color: ${item.font_color}; font-family: ${item.font_family}; font-size: ${Math.max(10, item.font_size * scale)}px; white-space: pre-line; text-align: ${item.alignment}; line-height: 1.25;">
         ${item.is_signature ? "✍️ [Signature]" : displayVal}
       </span>
       <div class="handle handle-nw" data-handle="nw"></div>
@@ -484,6 +515,7 @@ function updateInspector() {
   propColorInput.value = item.font_color.startsWith("#") ? item.font_color : "#112354";
   propAlignSelect.value = item.alignment;
   propAutoShrink.checked = item.auto_shrink;
+  propMultiLine.checked = !!(item.multi_line || item.max_lines >= 2);
   propIsSignature.checked = item.is_signature;
   propPrefixInput.value = item.prefix || "";
   propSuffixInput.value = item.suffix || "";

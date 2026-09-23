@@ -213,16 +213,18 @@
       "x": 2395,
       "y": 460,
       "width": 1050,
-      "height": 100,
+      "height": 130,
       "font_family": "Poppins-Bold",
-      "font_size": 46,
+      "font_size": 42,
       "font_color": "#393939",
       "alignment": "left",
       "is_signature": false,
       "image_path": null,
       "auto_shrink": true,
       "prefix": "",
-      "suffix": ""
+      "suffix": "",
+      "multi_line": true,
+      "max_lines": 2
     },
     {
       "id": "b_sig",

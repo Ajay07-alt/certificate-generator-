@@ -27,6 +27,8 @@ class PlaceholderItem:
     auto_shrink: bool = True
     prefix: str = ""
     suffix: str = ""
+    multi_line: bool = False
+    max_lines: int = 1
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

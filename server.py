@@ -89,6 +89,8 @@ class PlaceholderPayload(BaseModel):
     auto_shrink: bool = True
     prefix: str = ""
     suffix: str = ""
+    multi_line: bool = False
+    max_lines: int = 1
 
 
 class GenerateRequest(BaseModel):
