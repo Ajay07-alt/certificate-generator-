@@ -1,0 +1,67 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Prepare Web Assets for Mobile
+        run: |
+          mkdir -p mobile_dist
+          cp -r static/* mobile_dist/
+          # Ensure index.html is root in mobile_dist
+          if [ -f "static/index.html" ]; then
+            cp static/index.html mobile_dist/index.html
+          fi
+
+      - name: Initialize Capacitor Android Project
+        run: |
+          npm init -y
+          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
+          npx cap init "Certificate Generator" "com.certgen.app" --web-dir mobile_dist
+          npx cap add android
+
+      - name: Inject Android App Icons
+        run: |
+          if [ -f "static/icons/icon-192.png" ]; then
+            mkdir -p android/app/src/main/res/mipmap-xxhdpi
+            cp static/icons/icon-192.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
+            cp static/icons/icon-192.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
+          fi
+
+      - name: Build Android APK via Gradle
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Certificate-Generator-Android-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30

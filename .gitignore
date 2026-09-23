@@ -45,13 +45,15 @@ cloudflared.exe
 *.exe
 *.msi
 
-# --- Operating System & Editor Files ---
-.DS_Store
-Thumbs.db
-ehthumbs.db
-desktop.ini
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
+# --- Mobile & APK build artifacts ---
+android/
+ios/
+mobile_dist/
+node_modules/
+package.json
+package-lock.json
+capacitor.config.json
+capacitor.config.ts
+*.apk
+*.aab
+

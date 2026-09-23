@@ -2,8 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Visual Bulk Certificate Generator (Web Edition)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Visual Bulk Certificate Generator</title>
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#112354">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
@@ -46,6 +52,9 @@
 
       <!-- Live Preview Toggle -->
       <button id="previewToggleBtn" class="btn-secondary">👁️ Live Preview</button>
+
+      <!-- PWA Install Button (Shown on Android) -->
+      <button id="pwaInstallBtn" class="btn-primary" style="display: none; background: #059669; color: white;">📲 Install App</button>
 
       <!-- Generate Button -->
       <button id="generateBtn" class="btn-primary">🚀 Generate Certificates</button>
@@ -269,5 +278,14 @@
   </div>
 
   <script src="/static/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/static/sw.js')
+          .then(reg => console.log('[PWA] ServiceWorker registered:', reg.scope))
+          .catch(err => console.log('[PWA] ServiceWorker failed:', err));
+      });
+    }
+  </script>
 </body>
 </html>

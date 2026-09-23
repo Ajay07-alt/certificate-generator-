@@ -783,3 +783,31 @@ async function runBulkGenerate() {
     generateModal.style.display = "none";
   }
 }
+
+// Android PWA Install Event Handler
+let deferredPrompt;
+const pwaInstallBtn = document.getElementById("pwaInstallBtn");
+
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();
+  deferredPrompt = e;
+  if (pwaInstallBtn) {
+    pwaInstallBtn.style.display = "inline-flex";
+  }
+});
+
+if (pwaInstallBtn) {
+  pwaInstallBtn.addEventListener("click", async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    console.log("[PWA] User response to install:", outcome);
+    deferredPrompt = null;
+    pwaInstallBtn.style.display = "none";
+  });
+}
+
+window.addEventListener("appinstalled", () => {
+  console.log("[PWA] App successfully installed on device!");
+  if (pwaInstallBtn) pwaInstallBtn.style.display = "none";
+});
