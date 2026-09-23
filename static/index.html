@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Visual Bulk Certificate Generator (Web Edition)</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+  <!-- Top App Header -->
+  <header class="app-header">
+    <div class="brand">
+      <span>🏆</span>
+      <h1>Bulk Certificate Generator</h1>
+      <span class="badge">Web Edition</span>
+    </div>
+
+    <div class="header-controls">
+      <!-- Certificate Page Count -->
+      <div class="ctrl-group">
+        <label for="pageCountSelect">📄 Pages:</label>
+        <select id="pageCountSelect" class="ctrl-select">
+          <option value="1">1 Page (Front Only)</option>
+          <option value="2">2 Pages (Front & Back)</option>
+        </select>
+      </div>
+
+      <!-- Excel Sheet Changer -->
+      <div class="ctrl-group">
+        <label for="sheetSelect">📑 Sheet/Page:</label>
+        <select id="sheetSelect" class="ctrl-select">
+          <option value="">No Excel Loaded</option>
+        </select>
+      </div>
+
+      <!-- Student Record Navigator -->
+      <div class="nav-cluster">
+        <button id="prevStudentBtn" class="btn-nav" title="Previous Student">◀</button>
+        <div id="studentNavLabel" class="nav-status">No Students</div>
+        <button id="nextStudentBtn" class="btn-nav" title="Next Student">▶</button>
+      </div>
+
+      <!-- Auto Detect -->
+      <button id="autoPlaceBtn" class="btn-secondary">⚡ Auto Place</button>
+
+      <!-- Live Preview Toggle -->
+      <button id="previewToggleBtn" class="btn-secondary">👁️ Live Preview</button>
+
+      <!-- Generate Button -->
+      <button id="generateBtn" class="btn-primary">🚀 Generate Certificates</button>
+    </div>
+  </header>
+
+  <!-- App Body -->
+  <main class="app-body">
+    <!-- Left Sidebar: Uploads & Field Management -->
+    <aside class="sidebar-left">
+      <div class="sidebar-section">
+        <div class="section-title">
+          <span>📂 1. Inputs & Files</span>
+        </div>
+
+        <!-- Front Template Upload -->
+        <div class="upload-card" id="frontUploadCard">
+          <div class="upload-info">
+            <h4 id="frontUploadTitle">Front Template</h4>
+            <p id="frontUploadSub">PNG, JPG, or PDF (Page 1)</p>
+          </div>
+          <span class="upload-icon">📄</span>
+          <input type="file" id="frontFileInput" class="hidden-file-input" accept="image/*,application/pdf">
+        </div>
+
+        <!-- Back Template Upload -->
+        <div class="upload-card" id="backUploadCard" style="display: none;">
+          <div class="upload-info">
+            <h4 id="backUploadTitle">Back Template</h4>
+            <p id="backUploadSub">PNG, JPG, or PDF (Page 2)</p>
+          </div>
+          <span class="upload-icon">📄</span>
+          <input type="file" id="backFileInput" class="hidden-file-input" accept="image/*,application/pdf">
+        </div>
+
+        <!-- Excel File Upload -->
+        <div class="upload-card" id="excelUploadCard">
+          <div class="upload-info">
+            <h4 id="excelUploadTitle">Student Excel</h4>
+            <p id="excelUploadSub">.xlsx or .csv (multi-sheet support)</p>
+          </div>
+          <span class="upload-icon">📊</span>
+          <input type="file" id="excelFileInput" class="hidden-file-input" accept=".xlsx,.xls,.csv">
+        </div>
+
+        <!-- Signature Upload -->
+        <div class="upload-card" id="sigUploadCard">
+          <div class="upload-info">
+            <h4 id="sigUploadTitle">Signature Stamp</h4>
+            <p id="sigUploadSub">Transparent PNG</p>
+          </div>
+          <span class="upload-icon">✍️</span>
+          <input type="file" id="sigFileInput" class="hidden-file-input" accept="image/png,image/*">
+        </div>
+      </div>
+
+      <!-- Canvas Page Tabs & Placeholders -->
+      <div class="sidebar-section" style="flex: 1; display: flex; flex-direction: column;">
+        <div class="section-title">
+          <span>🎯 2. Placeholders</span>
+          <button id="addFieldBtn" class="tool-btn" style="padding: 2px 8px; font-size: 11px;">+ Add</button>
+        </div>
+
+        <!-- Page Tabs -->
+        <div class="page-tabs" id="pageTabsCluster">
+          <button class="tab-btn active" id="tabFrontBtn">Page 1 (Front)</button>
+          <button class="tab-btn" id="tabBackBtn" style="display: none;">Page 2 (Back)</button>
+        </div>
+
+        <!-- Placeholder List -->
+        <div class="field-list" id="fieldListContainer">
+          <!-- Dynamic field chips injected via JS -->
+        </div>
+      </div>
+    </aside>
+
+    <!-- Center Canvas Stage Viewport -->
+    <section class="canvas-viewport">
+      <div class="canvas-toolbar">
+        <div class="toolbar-group">
+          <span id="canvasPageIndicator" style="font-weight: 700; font-size: 13px; color: var(--primary);">Page 1 (Front)</span>
+          <span id="canvasDimLabel" style="font-size: 12px; color: var(--text-muted);">(No Template Loaded)</span>
+        </div>
+
+        <div class="toolbar-group">
+          <button id="zoomOutBtn" class="tool-btn" title="Zoom Out">🔍 -</button>
+          <span id="zoomLevelLabel" style="font-size: 12px; font-weight: 600; width: 45px; text-align: center;">100%</span>
+          <button id="zoomInBtn" class="tool-btn" title="Zoom In">🔍 +</button>
+          <button id="zoomResetBtn" class="tool-btn" title="Fit to Screen">Fit</button>
+        </div>
+      </div>
+
+      <!-- Canvas Area -->
+      <div class="canvas-stage-wrapper" id="stageWrapper">
+        <!-- Editor Mode Stage -->
+        <div class="canvas-stage" id="canvasStage" style="width: 842px; height: 595px;">
+          <img id="canvasBgImage" class="canvas-bg-image" style="display: none;" alt="Template">
+          <div id="placeholderLayer" class="canvas-placeholder-layer"></div>
+        </div>
+
+        <!-- Live Preview Mode Image -->
+        <div class="preview-stage-container" id="previewContainer">
+          <img id="previewImg" class="preview-rendered-img" alt="Rendered Preview">
+        </div>
+      </div>
+    </section>
+
+    <!-- Right Sidebar: Properties Inspector -->
+    <aside class="sidebar-right">
+      <div class="section-title">
+        <span>⚙️ Properties</span>
+      </div>
+
+      <div id="inspectorContent" style="display: none;">
+        <div class="prop-group">
+          <label class="prop-label">Placeholder / Column Name</label>
+          <input type="text" id="propNameInput" class="prop-input" placeholder="e.g. Name, Register No">
+        </div>
+
+        <div class="prop-group">
+          <label class="prop-label">Font Family</label>
+          <select id="propFontSelect" class="prop-select">
+            <option value="PTSerif-Bold">PT Serif (Bold)</option>
+            <option value="PTSerif-Regular">PT Serif (Regular)</option>
+            <option value="Poppins-Bold">Poppins (Bold)</option>
+            <option value="Poppins-Regular">Poppins (Regular)</option>
+            <option value="NotoSansTamil-Bold">Noto Sans Tamil (Bold)</option>
+            <option value="NotoSansTamil-Regular">Noto Sans Tamil (Regular)</option>
+            <option value="Arial">Arial</option>
+            <option value="Times New Roman">Times New Roman</option>
+          </select>
+        </div>
+
+        <div class="prop-group">
+          <label class="prop-label">Font Size (<span id="fontSizeDisplay">48</span>px)</label>
+          <input type="range" id="propFontSizeInput" min="12" max="120" value="48" style="width: 100%;">
+        </div>
+
+        <div class="prop-row prop-group">
+          <div>
+            <label class="prop-label">Color</label>
+            <input type="color" id="propColorInput" value="#112354" style="width: 100%; height: 35px; border-radius: 6px; cursor: pointer; border: 1px solid var(--border);">
+          </div>
+          <div>
+            <label class="prop-label">Alignment</label>
+            <select id="propAlignSelect" class="prop-select">
+              <option value="left">Left</option>
+              <option value="center" selected>Center</option>
+              <option value="right">Right</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="prop-group">
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; cursor: pointer;">
+            <input type="checkbox" id="propAutoShrink" checked>
+            Auto-shrink font to fit box
+          </label>
+        </div>
+
+        <div class="prop-group">
+          <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; cursor: pointer;">
+            <input type="checkbox" id="propIsSignature">
+            Is Signature Stamp
+          </label>
+        </div>
+
+        <div class="prop-row prop-group">
+          <div>
+            <label class="prop-label">Prefix</label>
+            <input type="text" id="propPrefixInput" class="prop-input" placeholder="e.g. Mr. / Ms.">
+          </div>
+          <div>
+            <label class="prop-label">Suffix</label>
+            <input type="text" id="propSuffixInput" class="prop-input" placeholder="e.g. (Hons)">
+          </div>
+        </div>
+
+        <hr style="margin: 16px 0; border: none; border-top: 1px solid var(--border);">
+
+        <button id="deleteItemBtn" class="tool-btn" style="width: 100%; color: var(--danger); border-color: #fecaca; background: #fef2f2; padding: 8px;">
+          🗑️ Delete Placeholder
+        </button>
+      </div>
+
+      <div id="inspectorEmptyMsg" style="color: var(--text-muted); font-size: 13px; text-align: center; margin-top: 40px;">
+        Click any placeholder on the canvas to inspect and edit its typography, alignment, and size.
+      </div>
+    </aside>
+  </main>
+
+  <!-- Generation Progress Modal -->
+  <div class="modal-overlay" id="generateModal">
+    <div class="modal-box">
+      <h3 id="modalTitle">🚀 Generating Bulk Certificates</h3>
+      <p id="modalDesc">Processing student records and compiling high-resolution 300 DPI PDFs...</p>
+
+      <div class="progress-bar-bg">
+        <div class="progress-bar-fill" id="progressBarFill"></div>
+      </div>
+
+      <div id="modalSuccessActions" style="display: none;">
+        <div style="font-size: 14px; font-weight: 600; color: var(--success); margin-bottom: 16px;" id="modalSummaryMsg">
+          ✓ Generated 30 Certificates successfully!
+        </div>
+        <div class="modal-actions">
+          <a id="downloadZipLink" class="btn-primary" href="#" style="text-decoration: none;">
+            📥 Download ZIP Bundle
+          </a>
+          <button id="closeModalBtn" class="btn-secondary">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Application generated files
+output_certificates/
+test_*_output/
+test_output/
+test_robotics_lab_30_students/
+*.log
+cloudflared.exe
+*.msi
+
+# Keep sample uploads or placeholders if needed, ignore large runtime uploads
+uploads/*
+!uploads/.gitkeep
