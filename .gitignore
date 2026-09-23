@@ -51,4 +51,5 @@ ios/
 node_modules/
 *.apk
 *.aab
+*.zip
 
