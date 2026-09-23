@@ -48,12 +48,7 @@ cloudflared.exe
 # --- Mobile & APK build artifacts ---
 android/
 ios/
-mobile_dist/
 node_modules/
-package.json
-package-lock.json
-capacitor.config.json
-capacitor.config.ts
 *.apk
 *.aab
 

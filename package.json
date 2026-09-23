@@ -1,0 +1,24 @@
+{
+  "name": "certificate-generator",
+  "version": "1.0.0",
+  "description": "Visual Bulk Certificate Generator Mobile & Web Edition",
+  "main": "index.js",
+  "scripts": {
+    "build": "echo 'Ready'",
+    "cap:add": "cap add android",
+    "cap:sync": "cap sync android"
+  },
+  "keywords": [
+    "certificate",
+    "generator",
+    "android",
+    "offline"
+  ],
+  "author": "Ajay",
+  "license": "MIT",
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/core": "^6.1.2"
+  }
+}

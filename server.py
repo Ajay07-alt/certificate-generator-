@@ -491,6 +491,15 @@ async def download_file(filename: str):
     )
 
 
+@app.get("/{filename:path}")
+async def serve_static_root(filename: str):
+    """Serves root-level static files (style.css, app.js, libs/*) for relative path support."""
+    fp = STATIC_DIR / filename
+    if fp.is_file():
+        return FileResponse(fp)
+    raise HTTPException(status_code=404, detail="File not found")
+
+
 def open_browser():
     """Opens user's default browser after server start."""
     port = int(os.environ.get("PORT", 8000))

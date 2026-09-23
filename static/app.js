@@ -529,6 +529,272 @@ function updateSelectedItem(updates) {
   renderFieldList();
 }
 
+// Local Offline Helpers
+function loadTemplateLocally(file, pageIndex) {
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    const dataUrl = e.target.result;
+    const img = new Image();
+    img.onload = () => {
+      state.templateUrls[pageIndex] = dataUrl;
+      state.nativeDimensions[pageIndex] = { width: img.naturalWidth || 2000, height: img.naturalHeight || 1414 };
+      if (pageIndex === 0) {
+        document.getElementById("frontUploadTitle").textContent = file.name;
+        frontUploadCard.classList.add("loaded");
+      } else {
+        document.getElementById("backUploadTitle").textContent = file.name;
+        backUploadCard.classList.add("loaded");
+      }
+      fitCanvasToScreen();
+      renderCanvas();
+    };
+    img.src = dataUrl;
+  };
+  reader.readAsDataURL(file);
+}
+
+function loadExcelLocally(file) {
+  if (typeof XLSX === "undefined") {
+    alert("Excel parser loading... Please try again in a few seconds.");
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = (e) => {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      state.excel.workbook = workbook;
+      state.excel.sheets = workbook.SheetNames;
+      state.excel.activeSheet = workbook.SheetNames[0];
+
+      const sheet = workbook.Sheets[state.excel.activeSheet];
+      const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+      state.excel.sampleRows = rows;
+      state.excel.totalStudents = rows.length;
+      state.excel.columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+
+      document.getElementById("excelUploadTitle").textContent = file.name;
+      document.getElementById("excelUploadSub").textContent = `${state.excel.sheets.length} Sheets | ${state.excel.totalStudents} Students (Offline)`;
+      excelUploadCard.classList.add("loaded");
+
+      sheetSelect.innerHTML = "";
+      state.excel.sheets.forEach(s => {
+        const opt = document.createElement("option");
+        opt.value = s;
+        opt.textContent = s;
+        sheetSelect.appendChild(opt);
+      });
+      sheetSelect.value = state.excel.activeSheet;
+
+      state.studentIndex = 0;
+      updateStudentNav();
+      renderCanvas();
+    } catch (err) {
+      alert("Error reading Excel: " + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function switchSheetLocally(sheetName) {
+  if (!state.excel.workbook) return;
+  const sheet = state.excel.workbook.Sheets[sheetName];
+  if (!sheet) return;
+  const rows = XLSX.utils.sheet_to_json(sheet, { defval: "" });
+  state.excel.activeSheet = sheetName;
+  state.excel.sampleRows = rows;
+  state.excel.totalStudents = rows.length;
+  state.excel.columns = rows.length > 0 ? Object.keys(rows[0]) : [];
+  state.studentIndex = 0;
+  updateStudentNav();
+  renderCanvas();
+}
+
+function runAutoPlaceLocally() {
+  const cols = state.excel.columns || [];
+  const dims = state.nativeDimensions[state.activePage] || { width: 2000, height: 1414 };
+  const W = dims.width;
+  const H = dims.height;
+
+  const defaultFields = [
+    { key: "name", label: "Student Name", y: H * 0.48, size: 54, bold: true },
+    { key: "register", label: "Register No", y: H * 0.58, size: 30 },
+    { key: "college", label: "Department / College", y: H * 0.65, size: 28 },
+    { key: "title", label: "Project Title", y: H * 0.73, size: 28, multi_line: true, max_lines: 2 },
+    { key: "percentage", label: "Attendance / %", y: H * 0.81, size: 26 },
+    { key: "date", label: "Date", y: H * 0.88, x: W * 0.25, size: 24, align: "left" }
+  ];
+
+  const items = [];
+  defaultFields.forEach((df, idx) => {
+    let matchedCol = df.label;
+    for (const c of cols) {
+      if (c.toLowerCase().includes(df.key)) {
+        matchedCol = c;
+        break;
+      }
+    }
+    items.push({
+      id: "ph_" + Date.now() + "_" + idx,
+      name: matchedCol,
+      page_index: 0,
+      x: df.x !== undefined ? df.x : (W - 800) / 2,
+      y: df.y,
+      width: 800,
+      height: df.multi_line ? 80 : 50,
+      font_family: "PTSerif-Bold",
+      font_size: df.size,
+      font_color: "#112354",
+      alignment: df.align || "center",
+      auto_shrink: true,
+      multi_line: !!df.multi_line,
+      max_lines: df.max_lines || 1,
+      prefix: "",
+      suffix: ""
+    });
+  });
+
+  state.items = items;
+  renderCanvas();
+  renderFieldList();
+  updateInspector();
+}
+
+function renderLivePreviewLocally() {
+  const native = state.nativeDimensions[state.activePage] || { width: 2000, height: 1414 };
+  const canvas = document.createElement("canvas");
+  canvas.width = native.width;
+  canvas.height = native.height;
+  const ctx = canvas.getContext("2d");
+
+  const bgImg = new Image();
+  bgImg.src = state.templateUrls[state.activePage];
+  bgImg.onload = () => {
+    ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+    const student = state.excel.sampleRows[state.studentIndex] || {};
+    state.items.filter(it => it.page_index === state.activePage).forEach(item => {
+      let text = getCleanVal(student, item.name);
+      if (item.prefix) text = item.prefix + text;
+      if (item.suffix) text = text + item.suffix;
+
+      ctx.save();
+      ctx.fillStyle = item.font_color || "#112354";
+      ctx.textAlign = item.alignment || "center";
+      ctx.textBaseline = "middle";
+      const fontSize = item.font_size || 40;
+      ctx.font = `bold ${fontSize}px serif`;
+
+      let anchorX = item.x + item.width / 2;
+      if (item.alignment === "left") anchorX = item.x;
+      else if (item.alignment === "right") anchorX = item.x + item.width;
+      const anchorY = item.y + item.height / 2;
+
+      if (item.multi_line || (item.name && item.name.toLowerCase().includes("title"))) {
+        const split = splitTwoLines(text);
+        const lines = split.split("\n");
+        const lineSpacing = fontSize * 1.25;
+        const startY = anchorY - ((lines.length - 1) * lineSpacing) / 2;
+        lines.forEach((line, lineIdx) => {
+          ctx.fillText(line, anchorX, startY + lineIdx * lineSpacing);
+        });
+      } else {
+        ctx.fillText(text, anchorX, anchorY);
+      }
+      ctx.restore();
+    });
+    previewImg.src = canvas.toDataURL();
+  };
+  if (bgImg.complete) bgImg.onload();
+}
+
+async function runBulkGenerateOffline() {
+  if (typeof JSZip === "undefined") {
+    alert("ZIP packaging engine not ready.");
+    generateModal.style.display = "none";
+    return;
+  }
+  const zip = new JSZip();
+  const students = state.excel.sampleRows;
+  const total = students.length;
+  const nativeDims = state.nativeDimensions[0] || { width: 2000, height: 1414 };
+
+  const bgImg = new Image();
+  bgImg.crossOrigin = "anonymous";
+  bgImg.src = state.templateUrls[0];
+  await new Promise(r => { bgImg.onload = r; bgImg.onerror = r; });
+
+  const canvas = document.createElement("canvas");
+  canvas.width = nativeDims.width;
+  canvas.height = nativeDims.height;
+  const ctx = canvas.getContext("2d");
+
+  for (let i = 0; i < total; i++) {
+    const student = students[i];
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (bgImg.complete && bgImg.naturalWidth) {
+      ctx.drawImage(bgImg, 0, 0, canvas.width, canvas.height);
+    }
+
+    state.items.filter(it => it.page_index === 0).forEach(item => {
+      let text = getCleanVal(student, item.name);
+      if (item.prefix) text = item.prefix + text;
+      if (item.suffix) text = text + item.suffix;
+
+      ctx.save();
+      ctx.fillStyle = item.font_color || "#112354";
+      ctx.textAlign = item.alignment || "center";
+      ctx.textBaseline = "middle";
+      const fontSize = item.font_size || 40;
+      ctx.font = `bold ${fontSize}px serif`;
+
+      let anchorX = item.x + item.width / 2;
+      if (item.alignment === "left") anchorX = item.x;
+      else if (item.alignment === "right") anchorX = item.x + item.width;
+      const anchorY = item.y + item.height / 2;
+
+      if (item.multi_line || (item.name && item.name.toLowerCase().includes("title"))) {
+        const split = splitTwoLines(text);
+        const lines = split.split("\n");
+        const lineSpacing = fontSize * 1.25;
+        const startY = anchorY - ((lines.length - 1) * lineSpacing) / 2;
+        lines.forEach((line, lineIdx) => {
+          ctx.fillText(line, anchorX, startY + lineIdx * lineSpacing);
+        });
+      } else {
+        ctx.fillText(text, anchorX, anchorY);
+      }
+      ctx.restore();
+    });
+
+    const dataUrl = canvas.toDataURL("image/png");
+    const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+
+    const regNo = getCleanVal(student, "Register No") || getCleanVal(student, "Reg No") || (i + 1);
+    const sName = (getCleanVal(student, "Name") || getCleanVal(student, "Student Name") || "Student").replace(/[^\w\s-]/g, "");
+    const fileName = `${regNo}_${sName}.png`;
+
+    zip.file(fileName, base64Data, { base64: true });
+
+    const pct = Math.round(((i + 1) / total) * 100);
+    progressBarFill.style.width = `${pct}%`;
+  }
+
+  const blob = await zip.generateAsync({ type: "blob" });
+  if (typeof saveAs !== "undefined") {
+    saveAs(blob, "Certificates.zip");
+  } else {
+    const url = URL.createObjectURL(blob);
+    downloadZipLink.href = url;
+    downloadZipLink.download = "Certificates.zip";
+  }
+
+  modalSummaryMsg.textContent = `✓ Generated ${total} certificates successfully (Offline Bundle)!`;
+  downloadZipLink.onclick = () => {
+    if (typeof saveAs !== "undefined") saveAs(blob, "Certificates.zip");
+  };
+  modalSuccessActions.style.display = "block";
+}
+
 // Upload Handlers
 async function handleFileUpload(file, pageIndex) {
   if (!file) return;
@@ -538,8 +804,8 @@ async function handleFileUpload(file, pageIndex) {
 
   try {
     const res = await fetch("/api/upload/template", { method: "POST", body: formData });
-    const data = await res.json();
     if (res.ok) {
+      const data = await res.json();
       state.templateUrls[0] = data.front_url;
       state.nativeDimensions[0] = data.dimensions;
       document.getElementById("frontUploadTitle").textContent = file.name;
@@ -559,12 +825,12 @@ async function handleFileUpload(file, pageIndex) {
 
       fitCanvasToScreen();
       renderCanvas();
-    } else {
-      alert(`Error uploading template: ${data.detail}`);
+      return;
     }
   } catch (err) {
-    alert(`Failed to upload: ${err.message}`);
+    console.warn("Backend unavailable, using local template loader:", err);
   }
+  loadTemplateLocally(file, pageIndex);
 }
 
 async function handleExcelUpload(file) {
@@ -574,8 +840,8 @@ async function handleExcelUpload(file) {
 
   try {
     const res = await fetch("/api/upload/excel", { method: "POST", body: formData });
-    const data = await res.json();
     if (res.ok) {
+      const data = await res.json();
       state.excel.sheets = data.sheets;
       state.excel.activeSheet = data.active_sheet;
       state.excel.totalStudents = data.total_students;
@@ -586,7 +852,6 @@ async function handleExcelUpload(file) {
       document.getElementById("excelUploadSub").textContent = `${data.sheets.length} Sheets | ${data.total_students} Students`;
       excelUploadCard.classList.add("loaded");
 
-      // Update Sheet Dropdown
       sheetSelect.innerHTML = "";
       data.sheets.forEach(s => {
         const opt = document.createElement("option");
@@ -599,12 +864,12 @@ async function handleExcelUpload(file) {
       state.studentIndex = 0;
       updateStudentNav();
       renderCanvas();
-    } else {
-      alert(`Excel error: ${data.detail}`);
+      return;
     }
   } catch (err) {
-    alert(`Failed to upload Excel: ${err.message}`);
+    console.warn("Backend unavailable, using local Excel parser:", err);
   }
+  loadExcelLocally(file);
 }
 
 async function switchSheet(sheetName) {
@@ -614,8 +879,8 @@ async function switchSheet(sheetName) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ sheet_name: sheetName })
     });
-    const data = await res.json();
     if (res.ok) {
+      const data = await res.json();
       state.excel.activeSheet = data.active_sheet;
       state.excel.totalStudents = data.total_students;
       state.excel.sampleRows = data.sample_rows;
@@ -625,10 +890,12 @@ async function switchSheet(sheetName) {
       updateStudentNav();
       renderCanvas();
       if (state.isPreviewMode) renderLivePreview();
+      return;
     }
   } catch (err) {
-    alert(`Error switching sheet: ${err.message}`);
+    console.warn("Backend unavailable, switching sheet locally:", err);
   }
+  switchSheetLocally(sheetName);
 }
 
 async function handleSignatureUpload(file) {
@@ -638,57 +905,37 @@ async function handleSignatureUpload(file) {
 
   try {
     const res = await fetch("/api/upload/signature", { method: "POST", body: formData });
-    const data = await res.json();
     if (res.ok) {
       document.getElementById("sigUploadTitle").textContent = file.name;
       sigUploadCard.classList.add("loaded");
       alert("Signature uploaded! Click '⚡ Auto Place' or add a placeholder with 'Is Signature Stamp' enabled.");
+      return;
     }
   } catch (err) {
-    alert(`Error uploading signature: ${err.message}`);
+    console.warn("Backend unavailable for signature upload:", err);
   }
-}
-
-// Student Navigator
-function updateStudentNav() {
-  if (state.excel.totalStudents === 0) {
-    studentNavLabel.textContent = "No Students";
-    prevStudentBtn.disabled = true;
-    nextStudentBtn.disabled = true;
-    return;
-  }
-
-  const row = state.excel.sampleRows[state.studentIndex] || {};
-  const name = row.Name || row["Student Name"] || "Student";
-  studentNavLabel.textContent = `${state.studentIndex + 1}/${state.excel.totalStudents}: ${name}`;
-  prevStudentBtn.disabled = state.studentIndex <= 0;
-  nextStudentBtn.disabled = state.studentIndex >= state.excel.totalStudents - 1;
-}
-
-function navigateStudent(delta) {
-  const newIdx = state.studentIndex + delta;
-  if (newIdx >= 0 && newIdx < state.excel.totalStudents) {
-    state.studentIndex = newIdx;
-    updateStudentNav();
-    renderCanvas();
-    if (state.isPreviewMode) renderLivePreview();
-  }
+  document.getElementById("sigUploadTitle").textContent = file.name;
+  sigUploadCard.classList.add("loaded");
 }
 
 // Auto Place
 async function runAutoPlace() {
   try {
     const res = await fetch("/api/auto-place");
-    const data = await res.json();
-    if (res.ok && data.items) {
-      state.items = data.items;
-      renderCanvas();
-      renderFieldList();
-      updateInspector();
+    if (res.ok) {
+      const data = await res.json();
+      if (data.items && data.items.length > 0) {
+        state.items = data.items;
+        renderCanvas();
+        renderFieldList();
+        updateInspector();
+        return;
+      }
     }
   } catch (err) {
-    alert(`Auto-place error: ${err.message}`);
+    console.warn("Backend unavailable, auto-placing locally:", err);
   }
+  runAutoPlaceLocally();
 }
 
 // Live Preview
@@ -723,13 +970,17 @@ async function renderLivePreview() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    const data = await res.json();
-    if (data.status === "success") {
-      previewImg.src = data.preview_b64;
+    if (res.ok) {
+      const data = await res.json();
+      if (data.status === "success" && data.preview_b64) {
+        previewImg.src = data.preview_b64;
+        return;
+      }
     }
   } catch (err) {
-    console.error("Preview error:", err);
+    console.warn("Backend unavailable, rendering local preview:", err);
   }
+  renderLivePreviewLocally();
 }
 
 // Bulk Generation
@@ -747,7 +998,6 @@ async function runBulkGenerate() {
     return;
   }
 
-  // Open progress modal
   generateModal.style.display = "flex";
   modalSuccessActions.style.display = "none";
   progressBarFill.style.width = "25%";
@@ -768,20 +1018,19 @@ async function runBulkGenerate() {
       body: JSON.stringify(payload)
     });
 
-    const data = await res.json();
     if (res.ok) {
+      const data = await res.json();
       progressBarFill.style.width = "100%";
       modalSummaryMsg.textContent = `✓ Generated ${data.total_generated} high-resolution PDF certificates!`;
       downloadZipLink.href = data.download_zip_url;
       modalSuccessActions.style.display = "block";
-    } else {
-      alert(`Generation error: ${data.detail}`);
-      generateModal.style.display = "none";
+      return;
     }
   } catch (err) {
-    alert(`Bulk generation failed: ${err.message}`);
-    generateModal.style.display = "none";
+    console.warn("Backend unavailable, falling back to offline client generator:", err);
   }
+
+  await runBulkGenerateOffline();
 }
 
 // Android PWA Install Event Handler

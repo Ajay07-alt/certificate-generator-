@@ -5,6 +5,9 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-apk:
     name: Build Android APK
@@ -25,32 +28,40 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - name: Accept Android SDK Licenses
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
-      - name: Prepare Web Assets for Mobile
+      - name: Prepare Mobile Web Assets
         run: |
           mkdir -p mobile_dist
           cp -r static/* mobile_dist/
-          # Ensure index.html is root in mobile_dist
-          if [ -f "static/index.html" ]; then
-            cp static/index.html mobile_dist/index.html
-          fi
+          mkdir -p mobile_dist/static
+          cp -r static/* mobile_dist/static/
 
-      - name: Initialize Capacitor Android Project
+      - name: Install Dependencies
         run: |
-          npm init -y
-          npm install @capacitor/core@latest @capacitor/cli@latest @capacitor/android@latest
-          npx cap init "Certificate Generator" "com.certgen.app" --web-dir mobile_dist
+          npm install
+
+      - name: Add Android Platform
+        run: |
           npx cap add android
+          npx cap sync android
+
+      - name: Configure Android SDK Location
+        run: |
+          echo "sdk.dir=$ANDROID_HOME" > android/local.properties
 
       - name: Inject Android App Icons
         run: |
-          if [ -f "static/icons/icon-192.png" ]; then
-            mkdir -p android/app/src/main/res/mipmap-xxhdpi
-            cp static/icons/icon-192.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png
-            cp static/icons/icon-192.png android/app/src/main/res/mipmap-xxhdpi/ic_launcher_round.png
-          fi
+          for dir in mipmap-hdpi mipmap-mdpi mipmap-xhdpi mipmap-xxhdpi; do
+            mkdir -p android/app/src/main/res/$dir
+            cp static/icons/icon-192.png android/app/src/main/res/$dir/ic_launcher.png
+            cp static/icons/icon-192.png android/app/src/main/res/$dir/ic_launcher_round.png
+          done
+          mkdir -p android/app/src/main/res/mipmap-xxxhdpi
+          cp static/icons/icon-512.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png
+          cp static/icons/icon-512.png android/app/src/main/res/mipmap-xxxhdpi/ic_launcher_round.png
 
       - name: Build Android APK via Gradle
         run: |
@@ -58,10 +69,25 @@ jobs:
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
 
+      - name: Prepare APK Output
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk ./Certificate-Generator.apk
+
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Certificate-Generator-Android-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: Certificate-Generator-APK
+          path: Certificate-Generator.apk
           if-no-files-found: error
           retention-days: 30
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v1.0.0"
+          name: "Certificate Generator Android App v1.0.0"
+          body: "Direct Android APK download for offline bulk certificate generation."
+          files: Certificate-Generator.apk
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,9 @@
+{
+  "appId": "com.certgen.app",
+  "appName": "Certificate Generator",
+  "webDir": "mobile_dist",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "https"
+  }
+}
