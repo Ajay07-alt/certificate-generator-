@@ -1,22 +1,57 @@
-# Python
+# ==============================================================================
+# Git Ignore - Visual Bulk Certificate Generator
+# ==============================================================================
+
+# --- Byte-compiled / optimized / DLL files ---
 __pycache__/
 *.py[cod]
 *$py.class
+*.pyd
 *.so
 .Python
+
+# --- Virtual Environments ---
+.env
+.venv
 env/
 venv/
-.venv/
+ENV/
+env.bak/
+venv.bak/
 
-# Application generated files
+# --- Application Outputs & Temp Batches ---
 output_certificates/
-test_*_output/
 test_output/
+test_bulk_output/
+test_multi_sheet_output/
+test_single_page_output/
+test_two_page_output/
 test_robotics_lab_30_students/
-*.log
-cloudflared.exe
-*.msi
+*.pdf
+!assets/*.pdf
 
-# Keep sample uploads or placeholders if needed, ignore large runtime uploads
+# --- Uploads (Keep folder, ignore user uploaded runtime files) ---
 uploads/*
 !uploads/.gitkeep
+
+# --- Logs & Debug files ---
+*.log
+server.log
+pip-log.txt
+pip-delete-this-directory.txt
+
+# --- Binaries & Downloaded Tools ---
+cloudflared.exe
+*.exe
+*.msi
+
+# --- Operating System & Editor Files ---
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
