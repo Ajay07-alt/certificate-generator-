@@ -292,12 +292,34 @@ function renderCanvas() {
     el.style.width = `${item.width * scale}px`;
     el.style.height = `${item.height * scale}px`;
 
-    // Dynamic label preview
+    // Dynamic label preview with decimal cleanup
+    function getCleanVal(row, name) {
+      if (!row || !name) return "";
+      let val = row[name];
+      if (val === undefined || val === null || val === "") {
+        const lowerName = name.toLowerCase().replace(/[_\.]/g, " ").trim();
+        for (const k of Object.keys(row)) {
+          const lowerK = k.toLowerCase().replace(/[_\.]/g, " ").trim();
+          if (lowerK === lowerName || lowerK.includes(lowerName) || lowerName.includes(lowerK)) {
+            val = row[k];
+            break;
+          }
+        }
+      }
+      if (val === undefined || val === null) return "";
+      let str = String(val).trim();
+      if (/^-?\d+\.0+$/.test(str)) {
+        str = str.replace(/\.0+$/, "");
+      }
+      return str;
+    }
+
     let displayVal = item.name;
     if (state.excel.sampleRows.length > 0) {
       const row = state.excel.sampleRows[state.studentIndex] || state.excel.sampleRows[0];
-      if (row && row[item.name]) {
-        displayVal = `${item.prefix}${row[item.name]}${item.suffix}`;
+      const cleanVal = getCleanVal(row, item.name);
+      if (cleanVal) {
+        displayVal = `${item.prefix || ""}${cleanVal}${item.suffix || ""}`;
       }
     }
 

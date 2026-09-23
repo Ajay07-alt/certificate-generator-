@@ -181,7 +181,35 @@ class ExcelDataLoader:
         if "To Date" in metadata and "To Date" not in df.columns:
             df["To Date"] = metadata["To Date"]
 
+        # Clean all cells to strip unwanted decimal points (.0) from register numbers, certificate numbers, etc.
+        df = df.map(clean_display_value)
+
         return df, list(df.columns), metadata
+
+
+def clean_display_value(val: Any) -> str:
+    """
+    Sanitizes values to eliminate unwanted decimal points (.0) from
+    register numbers, certificate numbers, roll numbers, and whole numbers.
+    """
+    if val is None or pd.isna(val):
+        return ""
+    
+    # If float or integer
+    if isinstance(val, (float, int)):
+        if isinstance(val, float) and val.is_integer():
+            return str(int(val))
+        elif isinstance(val, int):
+            return str(val)
+        return f"{val:g}"
+    
+    s = str(val).strip()
+    
+    # Check if string representation is an integer float like "111424205004.0" or "142.0"
+    if re.match(r'^-?\d+\.0+$', s):
+        return s.split('.')[0]
+        
+    return s
 
 
 class FontManager:
@@ -252,12 +280,12 @@ class CertificateGenerator:
     @staticmethod
     def match_column_value(row_data: Dict[str, Any], placeholder_name: str) -> str:
         """
-        Matches a placeholder name to row values using exact match or smart aliases.
+        Matches a placeholder name to row values using exact match or smart aliases,
+        stripping unwanted decimals (.0).
         """
         # Exact match
         if placeholder_name in row_data:
-            val = row_data[placeholder_name]
-            return "" if pd.isna(val) else str(val).strip()
+            return clean_display_value(row_data[placeholder_name])
 
         p_clean = placeholder_name.lower().replace("_", " ").replace(".", "").strip()
 
@@ -268,7 +296,7 @@ class CertificateGenerator:
             "department": ["dept", "department", "branch", "dept:"],
             "from date": ["from date", "from_date", "start date", "date from"],
             "to date": ["to date", "to_date", "end date", "date to"],
-            "certificate no": ["certificate no", "cert no", "cert_no", "certificate_no"],
+            "certificate no": ["certificate no", "certificate number", "cert no", "cert_no", "certificate_no"],
             "date of issue": ["date of issue", "issue date", "date_of_issue", "issue_date"],
             "grade obtained": ["grade", "grade obtained", "grade_obtained"],
             "student attendance": ["student attendance", "attendance", "attendance %", "attendance percentage"],
@@ -280,13 +308,13 @@ class CertificateGenerator:
         for col_name, val in row_data.items():
             c_clean = str(col_name).lower().replace("_", " ").replace(".", "").strip()
             if c_clean in target_keys or any(t in c_clean for t in target_keys):
-                return "" if pd.isna(val) else str(val).strip()
+                return clean_display_value(val)
 
         # Fuzzy partial match
         for col_name, val in row_data.items():
             c_clean = str(col_name).lower()
             if p_clean in c_clean or c_clean in p_clean:
-                return "" if pd.isna(val) else str(val).strip()
+                return clean_display_value(val)
 
         return ""
 
