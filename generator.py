@@ -184,6 +184,11 @@ class ExcelDataLoader:
         # Clean all cells to strip unwanted decimal points (.0) from register numbers, certificate numbers, etc.
         df = df.map(clean_display_value)
 
+        # Detect percentage / attendance columns and ensure proper % formatting (e.g. 1 -> 100%)
+        for col in df.columns:
+            if any(k in str(col).lower() for k in ["attendance", "percentage", "percent", "%"]):
+                df[col] = df[col].apply(format_percentage_value)
+
         return df, list(df.columns), metadata
 
 
@@ -209,6 +214,33 @@ def clean_display_value(val: Any) -> str:
     if re.match(r'^-?\d+\.0+$', s):
         return s.split('.')[0]
         
+    return s
+
+
+def format_percentage_value(val: Any) -> str:
+    """
+    Converts raw percentage representations into clean percentage strings.
+    E.g. 1 -> '100%', 1.0 -> '100%', 0.85 -> '85%', 100 -> '100%', '95%' -> '95%'.
+    """
+    if val is None or pd.isna(val):
+        return ""
+    s = str(val).strip()
+    if not s:
+        return ""
+    if "%" in s:
+        return s
+    try:
+        num = float(s)
+        if 0.0 < num <= 1.0:
+            return f"{int(round(num * 100))}%"
+        elif 1.0 < num <= 100.0:
+            if num.is_integer():
+                return f"{int(num)}%"
+            return f"{num:g}%"
+        elif num == 0.0:
+            return "0%"
+    except ValueError:
+        pass
     return s
 
 
@@ -281,13 +313,20 @@ class CertificateGenerator:
     def match_column_value(row_data: Dict[str, Any], placeholder_name: str) -> str:
         """
         Matches a placeholder name to row values using exact match or smart aliases,
-        stripping unwanted decimals (.0).
+        stripping unwanted decimals (.0) and formatting percentages (e.g. 1 -> 100%).
         """
+        p_clean = placeholder_name.lower().replace("_", " ").replace(".", "").strip()
+        is_percent_field = any(k in p_clean for k in ["attendance", "percentage", "percent", "%"])
+
+        def post_process(val: Any) -> str:
+            cleaned = clean_display_value(val)
+            if is_percent_field:
+                return format_percentage_value(cleaned)
+            return cleaned
+
         # Exact match
         if placeholder_name in row_data:
-            return clean_display_value(row_data[placeholder_name])
-
-        p_clean = placeholder_name.lower().replace("_", " ").replace(".", "").strip()
+            return post_process(row_data[placeholder_name])
 
         # Alias dictionary
         aliases = {
@@ -299,7 +338,7 @@ class CertificateGenerator:
             "certificate no": ["certificate no", "certificate number", "cert no", "cert_no", "certificate_no"],
             "date of issue": ["date of issue", "issue date", "date_of_issue", "issue_date"],
             "grade obtained": ["grade", "grade obtained", "grade_obtained"],
-            "student attendance": ["student attendance", "attendance", "attendance %", "attendance percentage"],
+            "student attendance": ["student attendance", "attendance", "attendance %", "attendance percentage", "percentage", "percent"],
             "mini project done": ["mini project done", "project name", "project", "mini project"],
         }
 
@@ -308,13 +347,13 @@ class CertificateGenerator:
         for col_name, val in row_data.items():
             c_clean = str(col_name).lower().replace("_", " ").replace(".", "").strip()
             if c_clean in target_keys or any(t in c_clean for t in target_keys):
-                return clean_display_value(val)
+                return post_process(val)
 
         # Fuzzy partial match
         for col_name, val in row_data.items():
             c_clean = str(col_name).lower()
             if p_clean in c_clean or c_clean in p_clean:
-                return clean_display_value(val)
+                return post_process(val)
 
         return ""
 

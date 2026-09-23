@@ -311,6 +311,18 @@ function renderCanvas() {
       if (/^-?\d+\.0+$/.test(str)) {
         str = str.replace(/\.0+$/, "");
       }
+      // Format attendance / percentage fields (e.g. 1 -> 100%, 0.85 -> 85%)
+      const isPercentField = /attendance|percentage|percent|%/i.test(name);
+      if (isPercentField && !str.includes("%")) {
+        const num = parseFloat(str);
+        if (!isNaN(num)) {
+          if (num > 0 && num <= 1.0) {
+            str = `${Math.round(num * 100)}%`;
+          } else if (num > 1.0 && num <= 100.0) {
+            str = `${Math.round(num)}%`;
+          }
+        }
+      }
       return str;
     }
 
