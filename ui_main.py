@@ -6,6 +6,7 @@ file upload ribbon, variables list, property inspector, and bulk generation engi
 
 import os
 import sys
+import queue
 import threading
 from pathlib import Path
 from typing import Dict, List, Optional, Any
@@ -15,7 +16,13 @@ from tkinter import ttk, filedialog, messagebox, colorchooser
 from PIL import Image
 
 from models import PlaceholderItem, ProjectConfig
-from generator import CertificateGenerator, ExcelDataLoader, sanitize_filename
+from generator import (
+    CertificateGenerator,
+    ExcelDataLoader,
+    sanitize_filename,
+    resolve_app_path,
+    get_default_output_dir,
+)
 from canvas_editor import CanvasEditor
 
 
@@ -28,6 +35,14 @@ class MainWindow(tk.Tk):
         self.title("Visual Bulk Certificate Generator - 2-Page Designer & Automation")
         self.geometry("1340x840")
         self.minsize(1080, 680)
+
+        # Set window icon if available
+        ico_path = resolve_app_path("app_icon.ico")
+        if ico_path and ico_path.exists():
+            try:
+                self.iconbitmap(str(ico_path))
+            except Exception:
+                pass
 
         # Apply system theme styling
         self._setup_styles()
@@ -43,6 +58,7 @@ class MainWindow(tk.Tk):
         self.sample_row_data: Dict[str, Any] = {}
         self.is_generating: bool = False
         self.cancel_generation: bool = False
+        self.gen_queue: queue.Queue = queue.Queue()
         self.page_count: int = 1
 
         # Build UI layout
@@ -141,7 +157,7 @@ class MainWindow(tk.Tk):
         preset_box.pack(side="right", padx=6)
         ttk.Button(preset_box, text="💾 Save Layout", command=self._save_layout_preset).pack(side="left", padx=3)
         ttk.Button(preset_box, text="📂 Load Layout", command=self._load_layout_preset).pack(side="left", padx=3)
-        ttk.Button(preset_box, text="🔄 Reset Default", command=self._restore_default_preset).pack(side="left", padx=3)
+        ttk.Button(preset_box, text="🧹 Clear All", command=self._clear_all_workspace).pack(side="left", padx=3)
 
     def _build_main_body(self):
         """Builds central work area: Left Sidebar (Variables & Quick Inspector) + Center Notebook Canvas."""
@@ -258,7 +274,7 @@ class MainWindow(tk.Tk):
         row1.pack(fill="x", pady=2)
 
         ttk.Label(row1, text="Output Directory:").pack(side="left", padx=(0, 4))
-        self.out_dir_var = tk.StringVar(value=str(Path("./output_certificates").resolve()))
+        self.out_dir_var = tk.StringVar(value=str(get_default_output_dir()))
         out_entry = ttk.Entry(row1, textvariable=self.out_dir_var)
         out_entry.pack(side="left", fill="x", expand=True, padx=4)
 
@@ -334,36 +350,50 @@ class MainWindow(tk.Tk):
     # -------------------------------------------------------------
 
     def _load_initial_defaults(self):
-        """Initializes application state with clean templates and editable 1-page default."""
+        """Initializes application state with completely clean templates and no preloaded data."""
         self.page_count = 1
         self.config.page_count = 1
         self.config.front_template_path = ""
         self.config.back_template_path = ""
+        self.config.excel_data_path = ""
+        self.config.signature_path = ""
+        self.config.selected_sheet = ""
         self.config.items = []
-
-        base_dir = Path(__file__).resolve().parent
-        sample_xlsx = base_dir / "assets" / "robotics_lab_data.xlsx"
-        if not sample_xlsx.exists():
-            sample_xlsx = base_dir / "assets" / "sample_data.xlsx"
-
-        sample_sig = base_dir / "assets" / "sample_signature.png"
+        self.excel_data = None
+        self.sample_row_data = {}
 
         # Apply 1-page mode initially
         self.set_page_count(1)
 
-        # Pre-load Excel data so available variables list is immediately populated
-        if sample_xlsx.exists():
-            self._process_excel_file(str(sample_xlsx.resolve()))
+        # Clear both canvases
+        self.canvas_front.clear_all()
+        self.canvas_back.clear_all()
 
-        # Pre-load sample signature if present
-        if sample_sig.exists():
-            self.config.signature_path = str(sample_sig.resolve())
-            self.sig_status_lbl.configure(text="✓ Loaded", foreground="#059669")
-
-        # Canvases start clean with NO default templates forced
+        # Reset all upload status indicators to clean, un-loaded state
         self.front_status_lbl.configure(text="Not Loaded", foreground="#dc2626")
         self.back_status_lbl.configure(text="(1-Page Mode)", foreground="#6b7280")
-        self.status_lbl.configure(text="Ready. Please upload your certificate template (PNG, JPG, or PDF).")
+        self.excel_status_lbl.configure(text="Not Loaded", foreground="#dc2626")
+        self.sig_status_lbl.configure(text="Not Loaded", foreground="#dc2626")
+        self.sheet_combo["values"] = []
+        self.sheet_combo.set("")
+
+        # Populate standard default variables for quick placement
+        self.available_variables = [
+            "Name", "Register No", "Department", "From Date", "To Date",
+            "Certificate No", "Date of Issue", "Grade Obtained",
+            "Student Attendance", "Mini Project Done", "Signature"
+        ]
+        self.vars_listbox.delete(0, tk.END)
+        for v in self.available_variables:
+            self.vars_listbox.insert(tk.END, f"  🏷️ {v}")
+
+        self.canvas_front.set_available_variables(self.available_variables)
+        self.canvas_back.set_available_variables(self.available_variables)
+
+        self.status_lbl.configure(
+            text="Ready. Please upload your certificate template (PNG, JPG, or PDF) and Excel data.",
+            foreground="#374151"
+        )
 
     def _sync_items_to_canvases(self):
         front_items = [it for it in self.config.items if it.page_index == 0]
@@ -555,9 +585,20 @@ class MainWindow(tk.Tk):
             self.config.output_dir = folder
 
     def _open_output_dir(self):
-        out = Path(self.out_dir_var.get())
-        out.mkdir(parents=True, exist_ok=True)
-        os.startfile(str(out))
+        path_str = self.out_dir_var.get().strip()
+        if not path_str:
+            path_str = str(get_default_output_dir())
+            self.out_dir_var.set(path_str)
+        out = Path(path_str)
+        try:
+            out.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(out))
+        except Exception:
+            try:
+                import subprocess
+                subprocess.Popen(["explorer", str(out)])
+            except Exception as e:
+                messagebox.showwarning("Open Folder", f"Could not open output folder:\n{out}\n\nError: {e}")
 
     # -------------------------------------------------------------
     # Presets Save / Load
@@ -589,49 +630,66 @@ class MainWindow(tk.Tk):
             self.config = ProjectConfig.load_from_json(path)
             self.set_page_count(self.config.page_count)
 
-            if self.config.output_dir:
-                self.out_dir_var.set(self.config.output_dir)
+            # Ensure output dir is valid on this machine
+            raw_out = self.config.output_dir
+            if raw_out:
+                try:
+                    p_out = Path(raw_out)
+                    p_out.mkdir(parents=True, exist_ok=True)
+                    self.out_dir_var.set(str(p_out))
+                except Exception:
+                    fallback_out = str(get_default_output_dir())
+                    self.out_dir_var.set(fallback_out)
+                    self.config.output_dir = fallback_out
+            else:
+                self.out_dir_var.set(str(get_default_output_dir()))
 
-            if self.config.front_template_path and Path(self.config.front_template_path).exists():
-                self.canvas_front.set_template_image(self.config.front_template_path)
+            # Resolve paths
+            res_front = resolve_app_path(self.config.front_template_path)
+            if res_front and res_front.exists():
+                self.config.front_template_path = str(res_front)
+                self.canvas_front.set_template_image(str(res_front))
                 self.front_status_lbl.configure(text="✓ Loaded", foreground="#059669")
             else:
                 self.front_status_lbl.configure(text="Not Loaded", foreground="#dc2626")
 
             if self.page_count >= 2:
-                if self.config.back_template_path and Path(self.config.back_template_path).exists():
-                    self.canvas_back.set_template_image(self.config.back_template_path)
+                res_back = resolve_app_path(self.config.back_template_path)
+                if res_back and res_back.exists():
+                    self.config.back_template_path = str(res_back)
+                    self.canvas_back.set_template_image(str(res_back))
                     self.back_status_lbl.configure(text="✓ Loaded", foreground="#059669")
                 else:
                     self.back_status_lbl.configure(text="Not Loaded", foreground="#dc2626")
 
-            if self.config.signature_path and Path(self.config.signature_path).exists():
+            res_sig = resolve_app_path(self.config.signature_path)
+            if res_sig and res_sig.exists():
+                self.config.signature_path = str(res_sig)
                 self.sig_status_lbl.configure(text="✓ Loaded", foreground="#059669")
 
-            if self.config.excel_data_path and Path(self.config.excel_data_path).exists():
-                self._process_excel_file(self.config.excel_data_path)
+            res_xl = resolve_app_path(self.config.excel_data_path)
+            if res_xl and res_xl.exists():
+                self.config.excel_data_path = str(res_xl)
+                self._process_excel_file(str(res_xl))
 
             self._sync_items_to_canvases()
             messagebox.showinfo("Preset Loaded", f"Successfully loaded preset from:\n{path}\nPages: {self.page_count}")
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load layout preset:\n{e}")
 
-    def _restore_default_preset(self):
-        base_dir = Path(__file__).resolve().parent
-        default_layout_path = base_dir / "assets" / "default_layout.json"
-        if default_layout_path.exists():
-            self.config = ProjectConfig.load_from_json(str(default_layout_path))
-            self.set_page_count(self.config.page_count)
-            if self.config.front_template_path and Path(self.config.front_template_path).exists():
-                self.canvas_front.set_template_image(self.config.front_template_path)
-                self.front_status_lbl.configure(text="✓ Loaded", foreground="#059669")
-            if self.config.back_template_path and Path(self.config.back_template_path).exists():
-                self.canvas_back.set_template_image(self.config.back_template_path)
-                self.back_status_lbl.configure(text="✓ Loaded", foreground="#059669")
-            if self.config.excel_data_path and Path(self.config.excel_data_path).exists():
-                self._process_excel_file(self.config.excel_data_path)
-            self._sync_items_to_canvases()
-            self.status_lbl.configure(text=f"Default Robotics Lab layout restored ({self.page_count} pages).")
+    def _clear_all_workspace(self):
+        """Resets the entire workspace to a clean, empty state without default templates or data."""
+        has_content = bool(self.config.front_template_path or self.config.excel_data_path or self.config.items)
+        if has_content:
+            res = messagebox.askyesno(
+                "Clear Workspace",
+                "Are you sure you want to clear all loaded templates, Excel data, and canvas placeholders?"
+            )
+            if not res:
+                return
+
+        self._load_initial_defaults()
+        messagebox.showinfo("Workspace Cleared", "Workspace has been cleared. You can now upload your template and data.")
 
     # -------------------------------------------------------------
     # Visual Canvas Interactions
@@ -700,22 +758,42 @@ class MainWindow(tk.Tk):
 
         # Synchronize items and options
         self._sync_items_from_canvases()
-        self.config.output_dir = self.out_dir_var.get()
+        out_dir = self.out_dir_var.get().strip()
+        if not out_dir:
+            out_dir = str(get_default_output_dir())
+            self.out_dir_var.set(out_dir)
+        self.config.output_dir = out_dir
+
         self.config.generate_all_sheets = self.gen_all_sheets_var.get()
         self.config.selected_sheet = self.sheet_combo.get().strip()
 
-        # Validation
+        # Validation with path resolution
         self.config.page_count = self.page_count
-        if not self.config.front_template_path or not Path(self.config.front_template_path).exists():
+        res_front = resolve_app_path(self.config.front_template_path)
+        if not res_front or not res_front.exists():
             messagebox.showerror("Missing Template", "Please upload the Front Page (Page 1) template image.")
             return
+        self.config.front_template_path = str(res_front)
+
         if self.page_count >= 2:
-            if not self.config.back_template_path or not Path(self.config.back_template_path).exists():
+            res_back = resolve_app_path(self.config.back_template_path)
+            if not res_back or not res_back.exists():
                 messagebox.showerror("Missing Template", "Please upload the Back Page (Page 2) template image, or switch Certificate Pages to 1.")
                 return
-        if not self.config.excel_data_path or not Path(self.config.excel_data_path).exists():
+            self.config.back_template_path = str(res_back)
+
+        res_xl = resolve_app_path(self.config.excel_data_path)
+        if not res_xl or not res_xl.exists():
             messagebox.showerror("Missing Data", "Please upload the Excel data file.")
             return
+        self.config.excel_data_path = str(res_xl)
+
+        # Clear queue of any stale messages
+        while not self.gen_queue.empty():
+            try:
+                self.gen_queue.get_nowait()
+            except queue.Empty:
+                break
 
         # Prepare UI
         self.is_generating = True
@@ -728,12 +806,16 @@ class MainWindow(tk.Tk):
         t = threading.Thread(target=self._generation_worker, daemon=True)
         t.start()
 
+        # Start thread-safe queue polling on main UI thread
+        self.after(50, self._poll_generation_queue)
+
     def _generation_worker(self):
+        """Worker thread executing document generation without touching Tkinter widgets directly."""
         try:
             generator = CertificateGenerator(self.config)
 
             def progress_callback(cur: int, total: int, filename: str):
-                self.after(0, lambda: self._update_progress(cur, total, filename))
+                self.gen_queue.put(("progress", (cur, total, filename)))
 
             def cancel_check():
                 return self.cancel_generation
@@ -743,13 +825,34 @@ class MainWindow(tk.Tk):
                 cancel_check=cancel_check
             )
 
-            self.after(0, lambda: self._on_generation_finished(generated_files))
+            self.gen_queue.put(("finished", generated_files))
 
         except Exception as e:
-            self.after(0, lambda: self._on_generation_error(str(e)))
+            self.gen_queue.put(("error", str(e)))
+
+    def _poll_generation_queue(self):
+        """Polls generation events from the thread-safe queue on the main UI thread."""
+        while True:
+            try:
+                msg_type, payload = self.gen_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            if msg_type == "progress":
+                cur, total, filename = payload
+                self._update_progress(cur, total, filename)
+            elif msg_type == "finished":
+                self._on_generation_finished(payload)
+                return
+            elif msg_type == "error":
+                self._on_generation_error(payload)
+                return
+
+        if self.is_generating:
+            self.after(50, self._poll_generation_queue)
 
     def _update_progress(self, cur: int, total: int, filename: str):
-        pct = (cur / float(total)) * 100.0
+        pct = (cur / float(total)) * 100.0 if total > 0 else 0.0
         self.progress_bar.configure(value=pct)
         self.status_lbl.configure(
             text=f"Generated [{cur}/{total}]: {filename}",
@@ -762,6 +865,7 @@ class MainWindow(tk.Tk):
         self.progress_bar.configure(value=100)
         count = len(files)
         out_folder = self.out_dir_var.get()
+        page_desc = "two-page" if self.page_count >= 2 else "single-page"
 
         self.status_lbl.configure(
             text=f"✓ Complete! Generated {count} certificates in {Path(out_folder).name}",
@@ -770,7 +874,7 @@ class MainWindow(tk.Tk):
 
         res = messagebox.askyesno(
             "Generation Complete!",
-            f"Successfully generated {count} two-page certificate PDFs!\n\nLocation: {out_folder}\n\nWould you like to open the output folder now?"
+            f"Successfully generated {count} {page_desc} certificate PDFs!\n\nLocation: {out_folder}\n\nWould you like to open the output folder now?"
         )
         if res:
             self._open_output_dir()

@@ -336,6 +336,19 @@ class CanvasEditor(ttk.Frame):
         else:
             self.refresh_canvas()
 
+    def clear_all(self):
+        """Clears template image, items, sample data, and resets selection."""
+        self.template_path = None
+        self.orig_image = None
+        self.rendered_preview = None
+        self.items = []
+        self.selected_item = None
+        self.sample_data_row = {}
+        self.all_rows = []
+        self.current_row_idx = 0
+        self.preview_sample_data = False
+        self.refresh_canvas()
+
     def set_items(self, items: List[PlaceholderItem]):
         """Sets the active placeholders for this canvas page."""
         self.items = items
@@ -464,11 +477,15 @@ class CanvasEditor(ttk.Frame):
         self.zoom_label.configure(text=f"{int(round(self.zoom_scale * 100))}%")
 
         if not self.orig_image:
+            cw = max(400, self.canvas.winfo_width())
+            ch = max(300, self.canvas.winfo_height())
+            p_name = "Front Page (Page 1)" if self.page_index == 0 else "Back Page (Page 2)"
+            btn_name = "📄 Front Template" if self.page_index == 0 else "📄 Back Template"
             self.canvas.create_text(
-                200, 150,
-                text="No Template Uploaded.\nClick 'Upload Template' to load a page.",
-                fill="#9ca3af",
-                font=("Segoe UI", 12, "italic"),
+                cw // 2, ch // 2,
+                text=f"📄 No Template Loaded for {p_name}\n\nPlease click '{btn_name}' above\nto upload your certificate image or PDF.",
+                fill="#6b7280",
+                font=("Segoe UI", 12, "bold"),
                 justify="center"
             )
             return

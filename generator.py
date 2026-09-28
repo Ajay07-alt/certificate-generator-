@@ -26,6 +26,76 @@ def sanitize_filename(name: str) -> str:
     return name or "certificate"
 
 
+def resolve_app_path(path_str: Optional[Any]) -> Optional[Path]:
+    """Resolves relative or absolute path against CWD, executable directory, or bundled package."""
+    if not path_str:
+        return None
+    p = Path(path_str)
+    # Check if existing absolute path
+    if p.is_absolute():
+        try:
+            if p.exists():
+                return p
+        except Exception:
+            pass
+    # Check relative to CWD
+    try:
+        if p.exists():
+            return p.resolve()
+    except Exception:
+        pass
+    # If running frozen in PyInstaller
+    if getattr(sys, 'frozen', False):
+        exe_dir = Path(sys.executable).parent
+        candidate = exe_dir / p
+        try:
+            if candidate.exists():
+                return candidate.resolve()
+        except Exception:
+            pass
+        meipass = getattr(sys, '_MEIPASS', None)
+        if meipass:
+            candidate = Path(meipass) / p
+            try:
+                if candidate.exists():
+                    return candidate.resolve()
+            except Exception:
+                pass
+    # Source dir
+    src_dir = Path(__file__).resolve().parent
+    candidate = src_dir / p
+    try:
+        if candidate.exists():
+            return candidate.resolve()
+    except Exception:
+        pass
+    return p
+
+
+def get_default_output_dir() -> Path:
+    """Returns a safe, writable default output folder across any system/drive configuration."""
+    candidates = []
+    if getattr(sys, 'frozen', False):
+        candidates.append(Path(sys.executable).parent / "output_certificates")
+    else:
+        candidates.append(Path(__file__).resolve().parent / "output_certificates")
+    candidates.append(Path("./output_certificates").resolve())
+    candidates.append(Path.home() / "Documents" / "Certificate_Outputs")
+    candidates.append(Path.home() / "Downloads" / "Certificate_Outputs")
+
+    for cand in candidates:
+        try:
+            cand.mkdir(parents=True, exist_ok=True)
+            test_f = cand / ".perm_check"
+            test_f.touch()
+            test_f.unlink(missing_ok=True)
+            return cand
+        except Exception:
+            continue
+
+    return Path("./output_certificates").resolve()
+
+
 class ExcelDataLoader:
     """
     Intelligently loads Excel data, handling both clean tabular sheets
@@ -271,10 +341,18 @@ class FontManager:
 
     def __init__(self, font_dirs: Optional[List[Path]] = None):
         self.font_dirs = font_dirs or []
-        # Add default app fonts directory
-        default_dir = Path(__file__).resolve().parent / "assets" / "fonts"
-        if default_dir.exists() and default_dir not in self.font_dirs:
-            self.font_dirs.append(default_dir)
+        # Add default app fonts directories across source, frozen executable, and MEIPASS
+        candidates = [
+            Path(__file__).resolve().parent / "assets" / "fonts",
+        ]
+        if getattr(sys, 'frozen', False):
+            candidates.append(Path(sys.executable).parent / "assets" / "fonts")
+            meipass = getattr(sys, '_MEIPASS', None)
+            if meipass:
+                candidates.append(Path(meipass) / "assets" / "fonts")
+        for c in candidates:
+            if c.exists() and c not in self.font_dirs:
+                self.font_dirs.append(c)
         self._font_cache: Dict[Tuple[str, int], ImageFont.FreeTypeFont] = {}
 
     def get_font_file(self, font_family: str, is_tamil: bool = False) -> Optional[Path]:
@@ -441,7 +519,9 @@ class CertificateGenerator:
 
     def _overlay_signature(self, base_image: Image.Image, item: PlaceholderItem, default_sig_path: str):
         """Overlays the signature image onto the base image with transparency support."""
-        sig_path = item.image_path or default_sig_path
+        raw_sig = item.image_path or default_sig_path
+        resolved_sig = resolve_app_path(raw_sig)
+        sig_path = str(resolved_sig) if (resolved_sig and resolved_sig.exists()) else raw_sig
         if not sig_path or not Path(sig_path).exists():
             return
 
@@ -495,13 +575,18 @@ class CertificateGenerator:
             page_count = 1
 
         # Resolve template paths
-        tpl_paths: List[str] = []
+        raw_tpl_paths: List[str] = []
         if getattr(self.config, "template_paths", None) and len(self.config.template_paths) >= page_count:
-            tpl_paths = self.config.template_paths[:page_count]
+            raw_tpl_paths = self.config.template_paths[:page_count]
         else:
-            tpl_paths = [self.config.front_template_path]
+            raw_tpl_paths = [self.config.front_template_path]
             if page_count >= 2:
-                tpl_paths.append(self.config.back_template_path)
+                raw_tpl_paths.append(self.config.back_template_path)
+
+        tpl_paths: List[str] = []
+        for tpl in raw_tpl_paths:
+            rp = resolve_app_path(tpl)
+            tpl_paths.append(str(rp) if (rp and rp.exists()) else tpl)
 
         for p_idx in range(page_count):
             tpl = tpl_paths[p_idx] if p_idx < len(tpl_paths) else ""
@@ -509,14 +594,25 @@ class CertificateGenerator:
                 p_label = "Front Page (Page 1)" if p_idx == 0 else f"Page {p_idx + 1}"
                 raise FileNotFoundError(f"{p_label} template image not found: '{tpl}'")
 
-        if not Path(self.config.excel_data_path).exists():
+        resolved_excel = resolve_app_path(self.config.excel_data_path)
+        excel_path_str = str(resolved_excel) if (resolved_excel and resolved_excel.exists()) else self.config.excel_data_path
+        if not Path(excel_path_str).exists():
             raise FileNotFoundError(f"Excel data file not found: {self.config.excel_data_path}")
 
-        base_out_dir = Path(self.config.output_dir or "output_certificates")
-        base_out_dir.mkdir(parents=True, exist_ok=True)
+        # Resolve output directory with robust fallback
+        raw_out_dir = self.config.output_dir or "output_certificates"
+        try:
+            base_out_dir = Path(raw_out_dir)
+            base_out_dir.mkdir(parents=True, exist_ok=True)
+            test_f = base_out_dir / ".perm_check"
+            test_f.touch()
+            test_f.unlink(missing_ok=True)
+        except Exception:
+            base_out_dir = get_default_output_dir()
+            base_out_dir.mkdir(parents=True, exist_ok=True)
 
         # Determine sheets to generate
-        available_sheets = ExcelDataLoader.get_sheet_names(self.config.excel_data_path)
+        available_sheets = ExcelDataLoader.get_sheet_names(excel_path_str)
         if self.config.generate_all_sheets:
             sheets_to_process = available_sheets
         else:
@@ -531,7 +627,7 @@ class CertificateGenerator:
         total_rows = 0
         for s in sheets_to_process:
             try:
-                df, _, _ = ExcelDataLoader.load(self.config.excel_data_path, sheet_name=s)
+                df, _, _ = ExcelDataLoader.load(excel_path_str, sheet_name=s)
                 if len(df) > 0:
                     sheet_data_map[s] = df
                     total_rows += len(df)

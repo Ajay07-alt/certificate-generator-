@@ -45,6 +45,12 @@ cloudflared.exe
 *.exe
 *.msi
 
+# --- PyInstaller & Build artifacts ---
+build/
+dist/
+archive/
+*.spec
+
 # --- Mobile & APK build artifacts ---
 android/
 ios/
